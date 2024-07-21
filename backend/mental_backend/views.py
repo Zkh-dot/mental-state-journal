@@ -59,11 +59,10 @@ def add_user(request: HttpRequest):
 @csrf_exempt    
 def login_user(request: HttpRequest):
     if request.method == "POST":
-        id = request.POST.get('id')
+        id = int(request.POST.get('id'))
         password = request.POST.get('password')
         salt = users_salt.get_salt(id)
-        # if salt and users.auth_user(user_id=id, password_hash=hash):
-        user = authenticate(request, id, bcrypt.hashpw(bytes(password, "utf-8"), salt))
+        user = users.auth_user(user_id=id, password=bcrypt.hashpw(bytes(password, "utf-8"), salt))
         if user is not None:
             login(request, user)
             return HttpResponse('You are authenticated')
@@ -71,5 +70,9 @@ def login_user(request: HttpRequest):
     return HttpResponse('something got wrong, check your id and password')
 
     
+def create_post(request: HttpRequest):
+    if request.user.is_authenticated:
+        pass    
+
 def echo(request: HttpRequest):
     return HttpResponse('hi') 

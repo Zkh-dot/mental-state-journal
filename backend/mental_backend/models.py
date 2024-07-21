@@ -36,12 +36,13 @@ class users(AbstractBaseUser):
             return ""
         return cls.objects.get(id=user_id).name
     
+    @classmethod
     def auth_user(cls, user_id: int, password: str):
         if not cls.user_exists(user_id):
-            return False
+            return None
         if cls.objects.get(id=user_id).password == password:
-            return True
-        return False
+            return cls.objects.get(id=user_id)
+        return None
     
 class users_salt(models.Model):
     id = models.OneToOneField(users, primary_key=True, on_delete=models.CASCADE)
