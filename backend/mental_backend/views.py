@@ -1,9 +1,9 @@
 from django.http import HttpResponse, HttpResponseBadRequest, Http404, HttpRequest, JsonResponse
-from .models import journal, users
+from .models import journal, users, users_salt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.csrf import csrf_protect
-import json
-
+import bcrypt
+from django.contrib.auth import authenticate, login
 
 def check_if_user_valid(request: HttpRequest):
     if users.user_exists(user_id=request.headers.get('id')):
@@ -35,18 +35,40 @@ def user_name_handler(request: HttpRequest):
 def add_user(request: HttpRequest):
     if request.method == 'POST':
         try:
-            id = request.POST.get('id')
+            id = int(request.POST.get('id'))
+            password = request.POST.get('password')
+            salt = bcrypt.gensalt()
             try:
                 name = request.POST.get("name")
             except:
                 name = ''
-            db_response = users.add_user(user_id=id, user_name=name)
-            if db_response:
+
+            if users.add_user(
+                    user_id=id, 
+                    user_name=name, 
+                    user_password=bcrypt.hashpw(bytes(password, "utf-8"), salt)
+                ):
+                users_salt.add_salt(id, salt)
                 return HttpResponse("user added!")
             else:
                 return HttpResponse("user existed!")
         except Exception as e:
-            return HttpResponseBadRequest()
+            return HttpResponseBadRequest(str(e) + '\n' + str(e.__traceback__.tb_frame) + '\n' + str(e.__traceback__.tb_lineno))
+     
+@csrf_protect
+@csrf_exempt    
+def login_user(request: HttpRequest):
+    if request.method == "POST":
+        id = request.POST.get('id')
+        password = request.POST.get('password')
+        salt = users_salt.get_salt(id)
+        # if salt and users.auth_user(user_id=id, password_hash=hash):
+        user = authenticate(request, id, bcrypt.hashpw(bytes(password, "utf-8"), salt))
+        if user is not None:
+            login(request, user)
+            return HttpResponse('You are authenticated')
+        
+    return HttpResponse('something got wrong, check your id and password')
 
     
 def echo(request: HttpRequest):
