@@ -35,7 +35,7 @@ def register():
 
     logger.info(f'Registering user with username: {username}')
 
-    id = user_table.add_user(username, password)    
+    id = async_to_sync(user_table.add_user(username, password))    
     if id: 
         access_token = create_access_token(identity=id)
         return jsonify({'message': 'Login Success', 'access_token': access_token})
@@ -50,12 +50,65 @@ def login():
     
     logger.info(f'Logging in user with username: {username}')
 
-    id = user_table.get_user(username)
+    id = async_to_sync(user_table.get_user(username))
 
-    if user_table.check_password(password, id):
+    if async_to_sync(user_table.check_password(password, id)):
         access_token = create_access_token(identity=id)
         return jsonify({'message': 'Login Success', 'access_token': access_token})
+    
+@app.route('/get_name', methods=['GET'])
+@jwt_required()
+def get_name():
+    """basicly test rout to check, if jwt auth is correct"""
+    user_id = get_jwt_identity()
+    user_name = async_to_sync(user_table.get_user(user_id=user_id))
 
+    if user_name:
+        return jsonify({'message': 'User found', 'name': user_name})
+    else:
+        return jsonify({'message': 'User not found'}), 404   
+
+
+@app.route('/journals', method=["GET"])
+@jwt_required
+def get_journals():
+    user_id = get_jwt_identity()
+    if not user_id:
+        return jsonify({"message": "bad jwt"}), 400
+    user_journals = async_to_sync(journal_table.get_posts(user_id))
+    return jsonify({"journal_posts": user_journals})
+
+
+@app.route('/journals', method=["POST"])
+@jwt_required
+def post_journal():
+    user_id = get_jwt_identity()
+    if not user_id:
+        return jsonify({"message": "bad jwt"}), 400
+    data = request.get_json()
+    try: 
+        async_to_sync(journal_table.add_post(
+            user_id=user_id,
+            line_mark=data['mark'],
+            category=data['category'],
+            line_text=data['line_text']
+        ))
+    except Exception as e:
+        logger.error(str(e))
+        return jsonify({"error": "you may not have passes some fields. required mark, category, line_text"}), 400
+    return jsonify({"message": "post added"})
+    
+
+@app.route("/journal/<number>")
+@jwt_required
+def get_journal(number):
+    number = int(number)
+    user_id = get_jwt_identity()
+    if not user_id:
+        return jsonify({"message": "bad jwt"}), 400
+    return jsonify(async_to_sync(journal_table.get_post(user_id, number)))
+    
+    
 if __name__ == '__main__':
     app.run(debug=True)
 

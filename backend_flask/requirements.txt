@@ -1,1 +1,6 @@
-SQLAlchemy
+aiosqlite
+flask
+flask_sqlalchemy
+flask_jwt_extended
+nest_asyncio
+bcrypt

@@ -7,3 +7,4 @@ migrations
 *.db
 *.db-journal
 */log/*
+*.log

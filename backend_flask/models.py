@@ -141,7 +141,6 @@ class UserTable:
             if len(await cursor.fetchall()) != 0:
                 logger.debug(f"user {username} already exists!")
                 return False
-        
         salt = bcrypt.gensalt()
         await self._salt_table.add_salt(user_id, salt)
         logger.info(f"add salt to user {user_id}")
@@ -163,10 +162,12 @@ class UserTable:
         """
         if username is not None:
             async with self._sql.sql.execute("SELECT id FROM users WHERE username = ?", (username,)) as cursor:
-                return (await cursor.fetchone())[0]
+                id = await cursor.fetchone()
+                return id[0]
         elif user_id is not None:
             async with self._sql.sql.execute("SELECT username FROM users WHERE id = ?", (user_id,)) as cursor:
-                return (await cursor.fetchone())[0]
+                username = await cursor.fetchone()
+                return username[0]
         else:
             return None
     
@@ -256,13 +257,13 @@ class JournalTable:
     def __del__(self):
         async_to_sync(self._sql.close_sql())
     
-                    # CREATE TABLE journal (
-                    # id INTEGER PRIMARY KEY,
-                    # FOREIGN KEY (user_id) REFERENCES users (id)
-                    # category TEXT NOT NULL
-                    # line_mark INTEGER DEFAULT 0,
-                    # line_text TEXT,
-                    # line_time_stamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP 
+                # CREATE TABLE journal (
+                #     id INTEGER PRIMARY KEY,
+                #     user_id INTEGER,
+                #     category TEXT NOT NULL,
+                #     line_mark INTEGER DEFAULT 0,
+                #     line_text TEXT,
+                #     line_time_stamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP 
     async def add_post(self, user_id: int, line_mark: int, category: str, line_text: str = None) -> bool:
         if await UserTable.is_user(self._sql, user_id):
             await self._sql.sql.execute("INSERT INTO journal (user_id, category, line_mark, line_text) VALUES (?,?,?,?)", (user_id, line_mark, category, line_text))
@@ -279,3 +280,35 @@ class JournalTable:
         else:
             logger.error(f"who the fuck is {user_id}?")
             return []
+        
+    async def get_post(self, user_id: int, post_id: int) -> dict:
+        async with self._sql.sql.execute("SELECT * FORM journal WHERE user_id = ? AND id = ?", (user_id, post_id)) as cursor:
+            post = await cursor.fetchone()
+        if post is None:
+            return None
+        return {
+            "id": post[0],
+            "user_id": post[1],
+            "category": post[2],
+            "line_mark": post[3],
+            "line_text": post[4],
+            "line_time": post[5]
+        }
+        
+    # TODO: this is really bad!
+    async def filter_by(self, fields: list = None, values: list = None, fields_values: dict = None) -> list:
+        filter_string = " "
+        if fields_values:
+            filter_string += " AND ".join([f"{key} = {fields_values[key]}" for key in fields_values])
+        if fields and values:
+            if len(fields) != len(values):
+                logger.error("not matching lenght of filter fields and values!")
+                return None
+            filter_string += " AND ".join([f"{fields[i]} = {values[i]}" for i in range(len(fields))])
+        if filter_string == " ":
+            logger.error("empty filter!")
+            return None
+        async with self._sql.sql.execute("SELECT * FROM journal WHERE" + filter_string) as cursor:
+            return await cursor.fetchall()
+        
+        
