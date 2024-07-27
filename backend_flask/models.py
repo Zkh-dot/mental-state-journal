@@ -36,7 +36,8 @@ class sql_connection:
         """
         if not os.path.isfile(self._db_link):
             self.sql = await aiosqlite.connect(self._db_link)
-            await self.sql.executescript(f"""CREATE TABLE users (
+            await self.sql.executescript(f"""--sql
+                CREATE TABLE users (
                     id INTEGER PRIMARY KEY,
                     username TEXT NOT NULL UNIQUE,
                     password TEXT NOT NULL
@@ -47,10 +48,12 @@ class sql_connection:
                 );
                 CREATE TABLE journal (
                     id INTEGER PRIMARY KEY,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
+                    user_id INTEGER,
+                    category TEXT NOT NULL,
                     line_mark INTEGER DEFAULT 0,
-                    line_text TEXT NOT NULL,
+                    line_text TEXT,
                     line_time_stamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP 
+                )
                     """
             )  
             await self.sql.commit()
@@ -88,23 +91,25 @@ class salt_table:
         logger.info(f"Added salt for user {user_id}")
         return True
     
-    async def get_salt(self, user_id: int) -> bytes:
+    async def get_salt(self, user_id: int) -> bytes | None:
         """
         Get the salt from the database.
         
         :param user_id: The user ID of the salt.
         :return: The salt.
         """
-        async with self._sql.sql.execute("SELECT salt FROM salt WHERE id = ?", (user_id,)) as cursor:
-            return (await cursor.fetchone())[0]
-        
+        if await user_table.is_user(self._sql, user_id):
+            async with self._sql.sql.execute("SELECT salt FROM salt WHERE id = ?", (user_id,)) as cursor:
+                salt = await cursor.fetchone()
+                return salt[0]
+        return None
 
 class user_table:
     def __init__(self, db_link: str = "sqlite.db") -> None:
         self._sql = sql_connection(db_link)
         self._salt_table = salt_table(db_link)
 
-    async def add_user(self, username: str, password: str, user_id: int = None,) -> bool:
+    async def add_user(self, username: str, password: str, user_id: int = None,) -> int | bool:
         """
         Add a new user to the database.
 
@@ -114,14 +119,20 @@ class user_table:
         """
         if user_id is None:
             user_id = hash(username)
+        async with self._sql.sql.execute("SELECT id FROM users WHERE username = ?", (username,)) as cursor:
+            if len(await cursor.fetchall()) != 0:
+                logger.debug(f"user {username} already exists!")
+                return False
+        
         salt = bcrypt.gensalt()
-        self._salt_table.add_salt(user_id, salt)
+        await self._salt_table.add_salt(user_id, salt)
+        logger.info(f"add salt to user {user_id}")
         password = bcrypt.hashpw(password.encode("utf-8"), salt)
         
         await self._sql.sql.execute("INSERT INTO users (id, username, password) VALUES (?, ?, ?)", (user_id, username, password))
         await self._sql.sql.commit()
         logger.info(f"Added user {username}")
-        return True
+        return user_id
 
     async def get_user(self, username: str = None, user_id: int = None):
         """
@@ -139,6 +150,14 @@ class user_table:
                 return await cursor.fetchone()
         else:
             return None
+    
+    # TODO: it is really cringy way to do it, rethink
+    @staticmethod    
+    async def is_user(sql: sql_connection, user_id: int) -> bool:
+        async with sql.sql.execute("SELECT id FROM users WHERE id = ?", (user_id,)) as cursor:
+            if len(await cursor.fetchall()) == 0:
+                return False
+        return True
         
     async def check_password(self, password: str, id: int) -> bool:
         """
@@ -149,10 +168,15 @@ class user_table:
         :param username: The username of the user.
         :return: True if the password is correct, False otherwise.
         """
+        async with self._sql.sql.execute("SELECT id FROM users WHERE id = ?", (id,)) as cursor:
+            if len(await cursor.fetchall()) == 0:
+                return False
+        
         async with self._sql.sql.execute("SELECT password FROM users WHERE id = ?", (id,)) as cursor:
             db_password = (await cursor.fetchone())[0]
-        async with self._sql.sql.execute("SELECT salt FROM salt WHERE id = ?", (id,)) as cursor:
-            salt = (await cursor.fetchone())[0]
+
+        salt = await self._salt_table.get_salt(id)
+        logger.info(f"salt === {salt}")
         
         if bcrypt.hashpw(password.encode("utf-8"), salt) == db_password:
             return True
@@ -206,10 +230,33 @@ class user_table:
     
 
 class journal_table:
+    """class to handle journal table"""
     def __init__(self) -> None:
         self._sql = sql_connection()
 
     def __del__(self):
         async_to_sync(self._sql.close_sql())
     
-    
+                    # CREATE TABLE journal (
+                    # id INTEGER PRIMARY KEY,
+                    # FOREIGN KEY (user_id) REFERENCES users (id)
+                    # category TEXT NOT NULL
+                    # line_mark INTEGER DEFAULT 0,
+                    # line_text TEXT,
+                    # line_time_stamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP 
+    async def add_post(self, user_id: int, line_mark: int, category: str, line_text: str = None) -> bool:
+        if await user_table.is_user(self._sql, user_id):
+            await self._sql.sql.execute("INSERT INTO journal (user_id, category, line_mark, line_text) VALUES (?,?,?,?)", (user_id, line_mark, category, line_text))
+            return True
+        else:
+            logger.error(f"whada fuck you are trying to post? user_id = {user_id}")
+            return False
+        
+    async def get_posts(self, user_id: int) -> list:
+        if await user_table.is_user(self._sql, user_id):
+            async with self._sql.sql.execute("SELECT * FROM journal WHERE user_id = ?", (user_id,)) as cursor:
+                posts = await cursor.fetchall()
+            return posts
+        else:
+            logger.error(f"who the fuck is {user_id}?")
+            return []

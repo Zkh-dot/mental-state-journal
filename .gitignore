@@ -3,3 +3,7 @@ __pycache__
 db.sqlite3
 logs
 migrations
+*test*
+*.db
+*.db-journal
+*/log/*
