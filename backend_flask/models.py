@@ -6,6 +6,24 @@ import os
 import bcrypt
 from singleton_logger import Logger
 
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
+# db = SQLAlchemy(app)
+
+# class User(db.Model, UserMixin):
+#     id = db.Column(db.Integer, primary_key=True)
+#     username = db.Column(db.String(20), unique=True, nullable=False)
+#     password = db.Column(db.String(80), nullable=False)
+#     is_active = db.Column(db.Boolean(), default=True)
+#     cart = db.Column(JSON, nullable=True, default=list)  # Make cart nullable
+
+#     # Define the relationship between User and CartProducts
+#     cart_products = relationship('CartProducts', backref="user", lazy="dynamic")
+#     # Define the relationship between User and Wishlists
+#     wishlists = db.relationship('Wishlists', backref='user', lazy=True)
+
+#     def __repr__(self):
+#         return f'<User {self.username}>'
+
 logger = Logger().get_logger()
 
 def async_to_sync(future, as_task=True):
@@ -98,13 +116,13 @@ class salt_table:
         :param user_id: The user ID of the salt.
         :return: The salt.
         """
-        if await user_table.is_user(self._sql, user_id):
+        if await UserTable.is_user(self._sql, user_id):
             async with self._sql.sql.execute("SELECT salt FROM salt WHERE id = ?", (user_id,)) as cursor:
                 salt = await cursor.fetchone()
                 return salt[0]
         return None
 
-class user_table:
+class UserTable:
     def __init__(self, db_link: str = "sqlite.db") -> None:
         self._sql = sql_connection(db_link)
         self._salt_table = salt_table(db_link)
@@ -134,20 +152,21 @@ class user_table:
         logger.info(f"Added user {username}")
         return user_id
 
-    async def get_user(self, username: str = None, user_id: int = None):
+    async def get_user(self, username: str = None, user_id: int = None) -> int | str | None:
         """
-        Get a user from the database.
+        Get a user or id from the database, depending on what you passed.
+        I know it is cringy, but I am a naughty boy and just wanna do it.
 
         :param username: The username of the user.
         :param user_id: The user ID of the user.
         :return: The user.
         """
         if username is not None:
-            async with self._sql.sql.execute("SELECT id, username FROM users WHERE username = ?", (username,)) as cursor:
-                return await cursor.fetchone()
+            async with self._sql.sql.execute("SELECT id FROM users WHERE username = ?", (username,)) as cursor:
+                return (await cursor.fetchone())[0]
         elif user_id is not None:
-            async with self._sql.sql.execute("SELECT id, username FROM users WHERE id = ?", (user_id,)) as cursor:
-                return await cursor.fetchone()
+            async with self._sql.sql.execute("SELECT username FROM users WHERE id = ?", (user_id,)) as cursor:
+                return (await cursor.fetchone())[0]
         else:
             return None
     
@@ -229,7 +248,7 @@ class user_table:
         return True
     
 
-class journal_table:
+class JournalTable:
     """class to handle journal table"""
     def __init__(self) -> None:
         self._sql = sql_connection()
@@ -245,7 +264,7 @@ class journal_table:
                     # line_text TEXT,
                     # line_time_stamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP 
     async def add_post(self, user_id: int, line_mark: int, category: str, line_text: str = None) -> bool:
-        if await user_table.is_user(self._sql, user_id):
+        if await UserTable.is_user(self._sql, user_id):
             await self._sql.sql.execute("INSERT INTO journal (user_id, category, line_mark, line_text) VALUES (?,?,?,?)", (user_id, line_mark, category, line_text))
             return True
         else:
@@ -253,7 +272,7 @@ class journal_table:
             return False
         
     async def get_posts(self, user_id: int) -> list:
-        if await user_table.is_user(self._sql, user_id):
+        if await UserTable.is_user(self._sql, user_id):
             async with self._sql.sql.execute("SELECT * FROM journal WHERE user_id = ?", (user_id,)) as cursor:
                 posts = await cursor.fetchall()
             return posts
