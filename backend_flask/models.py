@@ -272,9 +272,10 @@ class JournalTable:
             logger.error(f"whada fuck you are trying to post? user_id = {user_id}")
             return False
         
-    async def get_posts(self, user_id: int) -> list:
+    async def get_posts(self, user_id: int) -> list | str:
+        """returns id, category, line_mark, line_text, line_time_stamp"""
         if await UserTable.is_user(self._sql, user_id):
-            async with self._sql.sql.execute("SELECT * FROM journal WHERE user_id = ?", (user_id,)) as cursor:
+            async with self._sql.sql.execute("SELECT id, category, line_mark, line_text, line_time_stamp FROM journal WHERE user_id = ?", (user_id,)) as cursor:
                 posts = await cursor.fetchall()
             return posts
         else:
